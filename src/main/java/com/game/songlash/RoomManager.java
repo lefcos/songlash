@@ -1,8 +1,11 @@
 package com.game.songlash;
 
+import org.springframework.stereotype.Component;
 import java.security.SecureRandom;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+@Component //add this to tell Spring that this file is a component (?)
 
 public class RoomManager {
     private final Map<String, Room> activeRooms = new ConcurrentHashMap<>();

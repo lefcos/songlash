@@ -5,5 +5,7 @@ public enum MessageType {
     JOIN,
     LEAVE,
     ERROR,
-    ROOM_CREATED
+    ROOM_CREATED,
+    ROOM_JOINED,
+    JOIN_ROOM_FAILED
 }

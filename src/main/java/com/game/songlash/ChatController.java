@@ -1,6 +1,7 @@
 package com.game.songlash;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
@@ -12,6 +13,7 @@ import java.util.Optional;
 
 @Controller
 @RequiredArgsConstructor
+@Slf4j
 
 public class ChatController {
 
@@ -49,7 +51,7 @@ public class ChatController {
             return;
         }
 
-        Optional<Player> maybePlayer = playerRegistry.add(sessionId, requested);
+        Optional<Player> maybePlayer = playerRegistry.add(sessionId, requested, Optional.empty());
         if (maybePlayer.isEmpty()){
             sendError(sessionId, "name is taken already");
             return;
@@ -96,6 +98,7 @@ public class ChatController {
         Player hostPlayer = maybePlayer.get();
 
         Room newRoom = roomManager.createRoom();
+        playerRegistry.setPlayerRoom(sessionId, newRoom.getCode());
         newRoom.getPlayers().add(hostPlayer);
 
         ChatMessage roomCreatedMessage = ChatMessage.builder()
@@ -104,6 +107,44 @@ public class ChatController {
                 .content("room created with code " + newRoom.getCode())
                 .build();
 
-        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", roomCreatedMessage);
-    }
+        SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
+        accessor.setSessionId(sessionId);
+        accessor.setLeaveMutable(true);
+
+        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", roomCreatedMessage, accessor.getMessageHeaders());    }
+
+    @MessageMapping("/chat.joinRoom")
+    public void joinRoom(@Payload ChatMessage in, SimpMessageHeaderAccessor headerAccessor){
+        String sessionId = headerAccessor.getSessionId();
+        String code = in.getContent() == null ? "" : in.getContent().trim().toUpperCase();
+
+        Optional<Player> maybePlayer = playerRegistry.find(sessionId);
+        if(maybePlayer.isEmpty()){
+            sendError(sessionId, "join before sending a message");
+            return;
+        }
+        Player player = maybePlayer.get();
+
+//        if(player.roomId().isPresent()){
+//            sendError(sessionId, "you're already in a room");
+//            return;
+//        }
+
+        Room room = roomManager.getRoom(code);
+        if(room == null){sendError(sessionId, "room doesnt exist"); return;}
+
+        room.getPlayers().add(player);
+        playerRegistry.setPlayerRoom(sessionId, code);
+
+        ChatMessage playerJoinedMessage = ChatMessage.builder()
+                .type(MessageType.ROOM_JOINED)
+                .sender("system")
+                .content("joined room with code " + code)
+                .build();
+
+        SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
+        accessor.setSessionId(sessionId);
+        accessor.setLeaveMutable(true);
+
+        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", playerJoinedMessage, accessor.getMessageHeaders());    }
 }
