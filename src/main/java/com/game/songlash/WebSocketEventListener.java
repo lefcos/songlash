@@ -10,7 +10,7 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 @Component
 @RequiredArgsConstructor
-@Slf4j
+@Slf4j //SImple logging facade for java
 
 public class WebSocketEventListener {
 

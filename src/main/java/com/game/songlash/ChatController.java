@@ -17,6 +17,7 @@ public class ChatController {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final PlayerRegistry playerRegistry;
+    private final RoomManager roomManager;
 
     private void sendError(String sessionId, String text){
         var error = ChatMessage.builder()
@@ -83,5 +84,26 @@ public class ChatController {
                 .build());
     }
 
+    @MessageMapping("/chat.createRoom")
+    public void createRoom(SimpMessageHeaderAccessor headerAccessor){
+        String sessionId = headerAccessor.getSessionId();
 
+        Optional<Player> maybePlayer = playerRegistry.find(sessionId);
+        if(maybePlayer.isEmpty()){
+            sendError(sessionId, "join before sending a message");
+            return;
+        }
+        Player hostPlayer = maybePlayer.get();
+
+        Room newRoom = roomManager.createRoom();
+        newRoom.getPlayers().add(hostPlayer);
+
+        ChatMessage roomCreatedMessage = ChatMessage.builder()
+                .type(MessageType.ROOM_CREATED)
+                .sender("system")
+                .content("room created with code " + newRoom.getCode())
+                .build();
+
+        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", roomCreatedMessage);
+    }
 }
