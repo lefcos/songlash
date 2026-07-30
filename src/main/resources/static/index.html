@@ -4,144 +4,112 @@
     <meta charset="UTF-8">
     <title>Songlash</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 640px;
-            margin: 24px auto;
-            padding: 12px;
-            background: #f4f4f4;
-            color: #222;
-        }
-
-        h2 {
-            margin: 0 0 16px;
-        }
-
-        .panel {
-            background: #fff;
-            border: 1px solid #bbb;
-            padding: 12px;
-            margin: 12px 0;
-        }
-
-        input,
-        button {
-            font-size: 15px;
-            padding: 6px 8px;
-            margin-right: 4px;
-            margin-bottom: 4px;
-        }
-
-        #roomCode {
-            width: 120px;
-            text-transform: uppercase;
-        }
-
-        .sys {
-            margin-top: 8px;
-            color: #666;
-            font-style: italic;
-        }
-
-        .err {
-            color: #a11;
-            font-weight: bold;
-        }
-
-        .ok {
-            color: #1f7a1f;
-        }
+        body { font-family: sans-serif; margin: 12px; padding: 0; text-align: left; }
+        input, button { margin: 4px 4px 4px 0; }
+        #roomLog { border: 1px solid #999; min-height: 160px; padding: 8px; margin: 8px 0; }
     </style>
 </head>
 <body>
-<h2>Songlash</h2>
+<h2>Songlash!</h2>
 
-<div id="joinArea" class="panel">
-    <input id="username" placeholder="Your name" maxlength="10" autocomplete="off">
-    <button id="joinBtn">Sign in</button>
+<div id="joinArea">
+    <h3>ur name</h3>
+    <input id="username" placeholder="name" maxlength="10" autocomplete="off">
+    <button id="joinBtn">lets go</button>
 </div>
 
-<div id="lobbyArea" class="panel" style="display:none;">
-    <button id="createRoomBtn">Create game</button>
-    <input id="roomCode" placeholder="4-letter code" maxlength="4" autocomplete="off">
-    <button id="joinRoomBtn">Join game</button>
-    <div id="roomStatus" class="sys"></div>
+<div id="lobbyArea" style="display:none;">
+    <button id="createRoomBtn">create lobby</button>
+    <div></div>
+    <input id="roomCode" placeholder="code" maxlength="4" autocomplete="off">
+    <button id="joinRoomBtn">join game</button>
+    <div id="roomStatus"></div>
+</div>
+
+<div id="roomArea" style="display:none;">
+    <div id="roomTitle"></div>
+    <div id="roomLog"></div>
+    <input id="roomMessage" placeholder="message" autocomplete="off">
+    <button id="sendRoomBtn">Send</button>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
 <script>
     const $ = id => document.getElementById(id);
 
-    let client;
+    let client = null;
     let username = '';
     let joined = false;
+    let roomCode = '';
+    let roomSubscription = null;
 
-    const showLobby = () => {
-        $('joinArea').style.display = 'none';
-        $('lobbyArea').style.display = 'block';
-        $('roomStatus').textContent = 'Ready.';
-        $('roomCode').focus();
+    const setStatus = text => {
+        $('roomStatus').textContent = text || '';
     };
 
     const showJoin = () => {
         $('joinArea').style.display = 'block';
         $('lobbyArea').style.display = 'none';
-        $('roomStatus').textContent = '';
-        $('username').focus();
+        $('roomArea').style.display = 'none';
+        $('roomLog').innerHTML = '';
+        roomCode = '';
     };
 
-    const setStatus = (text, cls = 'sys') => {
-        const status = $('roomStatus');
-        status.className = cls;
-        status.textContent = text;
+    const showLobby = () => {
+        $('joinArea').style.display = 'none';
+        $('lobbyArea').style.display = 'block';
+        $('roomArea').style.display = 'none';
     };
 
-    const roomCodeFromText = text => {
+    const showRoom = code => {
+        roomCode = code;
+        $('roomTitle').textContent = 'Room ' + code;
+        $('roomArea').style.display = 'block';
+        $('lobbyArea').style.display = 'none';
+        $('roomLog').innerHTML = '';
+
+        if (roomSubscription) roomSubscription.unsubscribe();
+        roomSubscription = client.subscribe('/topic/room.' + code, frame => {
+            const msg = JSON.parse(frame.body);
+            const line = document.createElement('div');
+            const sender = msg.sender ? msg.sender + ': ' : '';
+            line.textContent = sender + (msg.content || msg.type);
+            $('roomLog').append(line);
+        });
+    };
+
+    const codeFromText = text => {
         const match = String(text || '').match(/\b([A-Z]{4})\b/);
-        return match ? match[1] : null;
+        return match ? match[1] : '';
     };
 
     $('joinBtn').onclick = () => {
         username = $('username').value.trim();
-        if (!username) {
-            setStatus('Enter a name first.', 'err');
-            return;
-        }
+        if (!username) return;
 
-        if (client) {
-            client.deactivate();
-        }
+        if (client) client.deactivate();
 
         client = new StompJs.Client({
             brokerURL: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws',
             onConnect: () => {
                 client.subscribe('/user/queue/errors', frame => {
                     const msg = JSON.parse(frame.body);
-                    setStatus(msg.content || 'Something went wrong.', 'err');
-                    if (!joined) {
-                        showJoin();
-                        client.deactivate();
-                    }
+                    setStatus(msg.content || 'error');
                 });
 
                 client.subscribe('/user/queue/room', frame => {
                     const msg = JSON.parse(frame.body);
-                    const code = roomCodeFromText(msg.content);
-
-                    if (msg.type === 'ROOM_CREATED' || msg.type === 'ROOM_JOINED') {
-                        if (code) {
-                            setStatus((msg.type === 'ROOM_CREATED' ? 'Game created: ' : 'Joined game: ') + code, 'ok');
-                        } else {
-                            setStatus(msg.content || '', 'ok');
-                        }
+                    const code = codeFromText(msg.content);
+                    if ((msg.type === 'ROOM_CREATED' || msg.type === 'ROOM_JOINED') && code) {
+                        setStatus(msg.content || '');
+                        showRoom(code);
                     } else {
-                        setStatus(msg.content || '', 'sys');
+                        setStatus(msg.content || '');
                     }
                 });
 
                 client.subscribe('/topic/public', frame => {
                     const msg = JSON.parse(frame.body);
-
                     if (msg.type === 'JOIN' && msg.sender === username && !joined) {
                         joined = true;
                         showLobby();
@@ -152,49 +120,53 @@
                     destination: '/app/chat.addUser',
                     body: JSON.stringify({ sender: username, type: 'JOIN' })
                 });
-            },
-            onStompError: frame => setStatus('STOMP error: ' + frame.headers['message'], 'err'),
-            onWebSocketClose: () => {
-                joined = false;
-                showJoin();
             }
         });
 
         client.activate();
-        setStatus('Connecting...', 'sys');
     };
 
     $('createRoomBtn').onclick = () => {
         if (!client) return;
-        setStatus('Creating game...', 'sys');
         client.publish({
             destination: '/app/chat.createRoom',
-            body: JSON.stringify({ type: 'CREATE_ROOM' })
+            body: JSON.stringify({})
         });
     };
 
     $('joinRoomBtn').onclick = () => {
         if (!client) return;
-
         const code = $('roomCode').value.trim().toUpperCase();
         if (code.length !== 4) {
-            setStatus('Enter a 4-letter code.', 'err');
+            setStatus('code must be 4 letters');
             return;
         }
-
-        setStatus('Joining game ' + code + '...', 'sys');
         client.publish({
             destination: '/app/chat.joinRoom',
-            body: JSON.stringify({ content: code, type: 'JOIN_ROOM' })
+            body: JSON.stringify({ content: code })
         });
+    };
+
+    $('sendRoomBtn').onclick = () => {
+        if (!client || !roomCode) return;
+        const input = $('roomMessage');
+        const content = input.value.trim();
+        if (!content) return;
+        client.publish({
+            destination: '/app/chat.roomMessage',
+            body: JSON.stringify({ content: content, type: 'CHAT' })
+        });
+        input.value = '';
     };
 
     $('username').addEventListener('keydown', e => {
         if (e.key === 'Enter') $('joinBtn').click();
     });
-
     $('roomCode').addEventListener('keydown', e => {
         if (e.key === 'Enter') $('joinRoomBtn').click();
+    });
+    $('roomMessage').addEventListener('keydown', e => {
+        if (e.key === 'Enter') $('sendRoomBtn').click();
     });
 </script>
 </body>

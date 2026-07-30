@@ -99,7 +99,8 @@ public class ChatController {
 
         Room newRoom = roomManager.createRoom();
         playerRegistry.setPlayerRoom(sessionId, newRoom.getCode());
-        newRoom.getPlayers().add(hostPlayer);
+        Player updatedHost = playerRegistry.find(sessionId).orElse(hostPlayer);
+        newRoom.getPlayers().add(updatedHost);
 
         ChatMessage roomCreatedMessage = ChatMessage.builder()
                 .type(MessageType.ROOM_CREATED)
@@ -111,7 +112,8 @@ public class ChatController {
         accessor.setSessionId(sessionId);
         accessor.setLeaveMutable(true);
 
-        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", roomCreatedMessage, accessor.getMessageHeaders());    }
+        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", roomCreatedMessage, accessor.getMessageHeaders());
+    }
 
     @MessageMapping("/chat.joinRoom")
     public void joinRoom(@Payload ChatMessage in, SimpMessageHeaderAccessor headerAccessor){
@@ -125,26 +127,72 @@ public class ChatController {
         }
         Player player = maybePlayer.get();
 
-//        if(player.roomId().isPresent()){
-//            sendError(sessionId, "you're already in a room");
-//            return;
-//        }
+        if(player.roomId().isPresent()){
+            sendError(sessionId, "you're already in a room");
+            return;
+        }
 
         Room room = roomManager.getRoom(code);
-        if(room == null){sendError(sessionId, "room doesnt exist"); return;}
+        if(room == null){
+            sendError(sessionId, "room doesn't exist");
+            return;
+        }
 
-        room.getPlayers().add(player);
+        if(roomManager.isFull(room)){
+            sendError(sessionId, "room is full");
+            return;
+        }
         playerRegistry.setPlayerRoom(sessionId, code);
+        Player updatedPlayer = playerRegistry.find(sessionId).orElse(player);
+        room.getPlayers().add(updatedPlayer);
 
         ChatMessage playerJoinedMessage = ChatMessage.builder()
-                .type(MessageType.ROOM_JOINED)
-                .sender("system")
-                .content("joined room with code " + code)
+                .type(MessageType.JOIN)
+                .sender(updatedPlayer.name())
+                .content(updatedPlayer.name() + " joined the room")
                 .build();
+
+        messagingTemplate.convertAndSend("/topic/room." + code, playerJoinedMessage);
 
         SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
         accessor.setSessionId(sessionId);
         accessor.setLeaveMutable(true);
 
-        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", playerJoinedMessage, accessor.getMessageHeaders());    }
+        ChatMessage roomJoinedMessage = ChatMessage.builder()
+                .type(MessageType.ROOM_JOINED)
+                .sender("system")
+                .content("joined room with code " + code)
+                .build();
+
+        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", roomJoinedMessage, accessor.getMessageHeaders());
+    }
+
+    @MessageMapping("/chat.roomMessage")
+    public void roomMessage(@Payload ChatMessage in, SimpMessageHeaderAccessor accessor){
+        String sessionId = accessor.getSessionId();
+
+        Optional<Player> maybePlayer = playerRegistry.find(sessionId);
+        if(maybePlayer.isEmpty()){
+            sendError(sessionId, "join before sending a room message");
+            return;
+        }
+
+        Player player = maybePlayer.get();
+        String roomCode = player.roomId().orElse("");
+        if(roomCode.isBlank()){
+            sendError(sessionId, "join a room first");
+            return;
+        }
+
+        String content = in.getContent() == null ? "" : in.getContent().trim();
+        if(content.isEmpty() || content.length() > 200){
+            return;
+        }
+
+        messagingTemplate.convertAndSend("/topic/room." + roomCode, ChatMessage.builder()
+                .type(MessageType.CHAT)
+                .sender(player.name())
+                .content(content)
+                .build());
+    }
 }

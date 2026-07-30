@@ -33,17 +33,17 @@ public class WebSocketEventListener {
                 if (room != null) {
                     room.getPlayers().removeIf(p -> p.sessionId().equals(sessionId));
 
+                    messageTemplate.convertAndSend("/topic/room." + code, ChatMessage.builder()
+                            .type(MessageType.LEAVE)
+                            .sender(player.name())
+                            .content(player.name() + " left the room")
+                            .build());
+
                     if (room.getPlayers().isEmpty()) {
                         roomManager.removeRoom(code);
                     }
                 }
             });
-
-            messageTemplate.convertAndSend("/topic/public", ChatMessage.builder()
-                    .type(MessageType.LEAVE)
-                    .sender(player.name())
-                    .players(playerRegistry.names())
-                    .build());
         });
     }
 }

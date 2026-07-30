@@ -9,9 +9,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class RoomManager {
     private final Map<String, Room> activeRooms = new ConcurrentHashMap<>();
-
     private static final String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     private final SecureRandom random = new SecureRandom();
+    public static final int MAX_PLAYERS = 7;
 
     private String generateUniqueRoomCode(){
         String code;
@@ -42,5 +42,9 @@ public class RoomManager {
 
     public void removeRoom(String code){
         activeRooms.remove(code);
+    }
+
+    public boolean isFull(Room room){
+        return room.getPlayers().size() >= MAX_PLAYERS;
     }
 }
