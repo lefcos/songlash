@@ -12,13 +12,7 @@
 <body>
 <h2>Songlash!</h2>
 
-<div id="joinArea">
-    <h3>ur name</h3>
-    <input id="username" placeholder="name" maxlength="10" autocomplete="off">
-    <button id="joinBtn">lets go</button>
-</div>
-
-<div id="lobbyArea" style="display:none;">
+<div id="roomJoinArea">
     <button id="createRoomBtn">create lobby</button>
     <div></div>
     <input id="roomCode" placeholder="code" maxlength="4" autocomplete="off">
@@ -26,11 +20,18 @@
     <div id="roomStatus"></div>
 </div>
 
+<div id="nameArea" style="display:none;">
+    <h3>pick ur name</h3>
+    <input id="username" placeholder="name" maxlength="10" autocomplete="off">
+    <button id="setNameBtn">set name</button>
+</div>
+
 <div id="roomArea" style="display:none;">
     <div id="roomTitle"></div>
+    <div id="roomPlayers"></div>
     <div id="roomLog"></div>
-    <input id="roomMessage" placeholder="message" autocomplete="off">
-    <button id="sendRoomBtn">Send</button>
+    <input id="roomMessage" placeholder="message" autocomplete="off" disabled>
+    <button id="sendRoomBtn" disabled>Send</button>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
@@ -39,43 +40,18 @@
 
     let client = null;
     let username = '';
-    let joined = false;
     let roomCode = '';
     let roomSubscription = null;
+    let nameSet = false;
+    let pendingAction = null;
 
     const setStatus = text => {
         $('roomStatus').textContent = text || '';
     };
 
-    const showJoin = () => {
-        $('joinArea').style.display = 'block';
-        $('lobbyArea').style.display = 'none';
-        $('roomArea').style.display = 'none';
-        $('roomLog').innerHTML = '';
-        roomCode = '';
-    };
-
-    const showLobby = () => {
-        $('joinArea').style.display = 'none';
-        $('lobbyArea').style.display = 'block';
-        $('roomArea').style.display = 'none';
-    };
-
-    const showRoom = code => {
-        roomCode = code;
-        $('roomTitle').textContent = 'Room ' + code;
-        $('roomArea').style.display = 'block';
-        $('lobbyArea').style.display = 'none';
-        $('roomLog').innerHTML = '';
-
-        if (roomSubscription) roomSubscription.unsubscribe();
-        roomSubscription = client.subscribe('/topic/room.' + code, frame => {
-            const msg = JSON.parse(frame.body);
-            const line = document.createElement('div');
-            const sender = msg.sender ? msg.sender + ': ' : '';
-            line.textContent = sender + (msg.content || msg.type);
-            $('roomLog').append(line);
-        });
+    const renderPlayers = players => {
+        const list = Array.isArray(players) ? players.filter(Boolean) : [];
+        $('roomPlayers').textContent = list.length ? 'Players: ' + list.join(', ') : 'Players:';
     };
 
     const codeFromText = text => {
@@ -83,11 +59,33 @@
         return match ? match[1] : '';
     };
 
-    $('joinBtn').onclick = () => {
-        username = $('username').value.trim();
-        if (!username) return;
+    const showJoin = () => {
+        $('roomJoinArea').style.display = 'block';
+        $('nameArea').style.display = 'none';
+        $('roomArea').style.display = 'none';
+        $('roomLog').innerHTML = '';
+        $('roomPlayers').textContent = '';
+        $('roomMessage').disabled = true;
+        $('sendRoomBtn').disabled = true;
+        roomCode = '';
+        nameSet = false;
+    };
 
-        if (client) client.deactivate();
+    const showNamePrompt = () => {
+        $('roomJoinArea').style.display = 'none';
+        $('nameArea').style.display = 'block';
+        $('roomArea').style.display = 'block';
+        $('roomMessage').disabled = true;
+        $('sendRoomBtn').disabled = true;
+    };
+
+    const connect = onReady => {
+        if (client) {
+            if (onReady) onReady();
+            return;
+        }
+
+        pendingAction = onReady || null;
 
         client = new StompJs.Client({
             brokerURL: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws',
@@ -100,58 +98,92 @@
                 client.subscribe('/user/queue/room', frame => {
                     const msg = JSON.parse(frame.body);
                     const code = codeFromText(msg.content);
+
                     if ((msg.type === 'ROOM_CREATED' || msg.type === 'ROOM_JOINED') && code) {
                         setStatus(msg.content || '');
+                        renderPlayers(msg.players);
                         showRoom(code);
+                        showNamePrompt();
                     } else {
                         setStatus(msg.content || '');
                     }
                 });
 
-                client.subscribe('/topic/public', frame => {
-                    const msg = JSON.parse(frame.body);
-                    if (msg.type === 'JOIN' && msg.sender === username && !joined) {
-                        joined = true;
-                        showLobby();
-                    }
-                });
-
-                client.publish({
-                    destination: '/app/chat.addUser',
-                    body: JSON.stringify({ sender: username, type: 'JOIN' })
-                });
+                if (pendingAction) {
+                    const action = pendingAction;
+                    pendingAction = null;
+                    action();
+                }
             }
         });
 
         client.activate();
     };
 
+    const showRoom = code => {
+        roomCode = code;
+        $('roomTitle').textContent = 'Room ' + code;
+        $('roomArea').style.display = 'block';
+        $('roomLog').innerHTML = '';
+
+        if (roomSubscription) roomSubscription.unsubscribe();
+        roomSubscription = client.subscribe('/topic/room.' + code, frame => {
+            const msg = JSON.parse(frame.body);
+            const line = document.createElement('div');
+            const sender = msg.sender ? msg.sender + ': ' : '';
+            line.textContent = sender + (msg.content || msg.type);
+            $('roomLog').append(line);
+            if (msg.players) renderPlayers(msg.players);
+
+            if (msg.type === 'JOIN' && msg.sender === username && !nameSet) {
+                nameSet = true;
+                $('nameArea').style.display = 'none';
+                $('roomMessage').disabled = false;
+                $('sendRoomBtn').disabled = false;
+            }
+        });
+    };
+
     $('createRoomBtn').onclick = () => {
-        if (!client) return;
-        client.publish({
-            destination: '/app/chat.createRoom',
-            body: JSON.stringify({})
+        connect(() => {
+            client.publish({
+                destination: '/app/chat.createRoom',
+                body: JSON.stringify({})
+            });
         });
     };
 
     $('joinRoomBtn').onclick = () => {
-        if (!client) return;
-        const code = $('roomCode').value.trim().toUpperCase();
-        if (code.length !== 4) {
-            setStatus('code must be 4 letters');
-            return;
-        }
+        connect(() => {
+            const code = $('roomCode').value.trim().toUpperCase();
+            if (code.length !== 4) {
+                setStatus('code must be 4 letters');
+                return;
+            }
+            client.publish({
+                destination: '/app/chat.joinRoom',
+                body: JSON.stringify({ content: code })
+            });
+        });
+    };
+
+    $('setNameBtn').onclick = () => {
+        if (!client || !roomCode) return;
+        username = $('username').value.trim();
+        if (!username) return;
+
         client.publish({
-            destination: '/app/chat.joinRoom',
-            body: JSON.stringify({ content: code })
+            destination: '/app/chat.setName',
+            body: JSON.stringify({ sender: username })
         });
     };
 
     $('sendRoomBtn').onclick = () => {
-        if (!client || !roomCode) return;
+        if (!client || !roomCode || !nameSet) return;
         const input = $('roomMessage');
         const content = input.value.trim();
         if (!content) return;
+
         client.publish({
             destination: '/app/chat.roomMessage',
             body: JSON.stringify({ content: content, type: 'CHAT' })
@@ -159,15 +191,17 @@
         input.value = '';
     };
 
-    $('username').addEventListener('keydown', e => {
-        if (e.key === 'Enter') $('joinBtn').click();
-    });
     $('roomCode').addEventListener('keydown', e => {
         if (e.key === 'Enter') $('joinRoomBtn').click();
+    });
+    $('username').addEventListener('keydown', e => {
+        if (e.key === 'Enter') $('setNameBtn').click();
     });
     $('roomMessage').addEventListener('keydown', e => {
         if (e.key === 'Enter') $('sendRoomBtn').click();
     });
+
+    showJoin();
 </script>
 </body>
 </html>

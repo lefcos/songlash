@@ -8,8 +8,6 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
-import java.util.Optional;
-
 @Component
 @RequiredArgsConstructor
 @Slf4j //SImple logging facade for java
@@ -26,20 +24,23 @@ public class WebSocketEventListener {
         String sessionId = headerAccessor.getSessionId();
 
         playerRegistry.remove(sessionId).ifPresent(player -> {
+            String display = player.name().orElse("anonymous");
             log.info("player disconnected: {}", player.name());
 
             player.roomId().ifPresent(code -> {
                 Room room = roomManager.getRoom(code);
                 if (room != null) {
-                    room.getPlayers().removeIf(p -> p.sessionId().equals(sessionId));
+                    room.getSessionIds().remove(sessionId);
 
-                    messageTemplate.convertAndSend("/topic/room." + code, ChatMessage.builder()
-                            .type(MessageType.LEAVE)
-                            .sender(player.name())
-                            .content(player.name() + " left the room")
-                            .build());
+                    player.name().ifPresent(name ->
+                            messageTemplate.convertAndSend("/topic/room." + code, ChatMessage.builder()
+                                    .type(MessageType.LEAVE)
+                                    .sender(name)
+                                    .content(name + " left the room")
+                                    .build())
+                    );
 
-                    if (room.getPlayers().isEmpty()) {
+                    if (room.getSessionIds().isEmpty()) {
                         roomManager.removeRoom(code);
                     }
                 }

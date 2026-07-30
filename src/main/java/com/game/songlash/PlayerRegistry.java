@@ -11,16 +11,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class PlayerRegistry {
     private static final Map<String, Player> bySession = new ConcurrentHashMap<>();
 
-    public synchronized Optional<Player> add(String sessionId, String name, Optional<String> roomId){
-        boolean taken = bySession.values().stream().anyMatch(p->p.name().equalsIgnoreCase(name));
-
-        if(taken){
-            return Optional.empty();
-        }
-
-        Player player = new Player(sessionId, name, roomId);
-        bySession.put(sessionId, player);
-        return Optional.of(player);
+    public Player ensureSession(String sessionId){
+        return bySession.computeIfAbsent(sessionId,
+                id -> new Player(id, Optional.empty(), Optional.empty())
+        );
     }
 
     public Optional<Player> remove(String sessionId){
@@ -32,18 +26,32 @@ public class PlayerRegistry {
     }
 
     public boolean setPlayerRoom(String sessionId, String roomId){
-        Optional<Player> maybePlayer = find(sessionId);
-        if(maybePlayer.isEmpty()) return false;
-
-        Player oldPlayer = maybePlayer.get();
-        Player updatedPlayer = new Player(sessionId, oldPlayer.name(), Optional.of(roomId));
-        bySession.put(sessionId, updatedPlayer);
+        Player existing = ensureSession(sessionId);
+        bySession.put(sessionId, new Player(sessionId, existing.name(), Optional.of(roomId)));
         return true;
     }
 
-    public List<String> names(){
+    public boolean setPlayerName(String sessionId, String name){
+        Optional<Player> maybe = find(sessionId);
+        if (maybe.isEmpty()) return false;
+
+        Player p = maybe.get();
+        bySession.put(sessionId, new Player(sessionId, Optional.of(name), p.roomId()));
+        return true;
+    }
+
+    public boolean isNameTaken(String roomCode, String requestedName){
+        return bySession.values().stream().anyMatch(p ->
+                p.roomId().isPresent()
+                        && p.roomId().get().equals(roomCode)
+                        && p.name().isPresent()
+                        && p.name().get().equalsIgnoreCase(requestedName));
+    }
+
+    public List<String> namesInRoom(String roomCode){
         return bySession.values().stream()
-                .map(Player::name)
+                .filter(p -> p.roomId().isPresent() && p.roomId().get().equals(roomCode))
+                .flatMap(p -> p.name().stream())
                 .sorted(String.CASE_INSENSITIVE_ORDER)
                 .toList();
     }

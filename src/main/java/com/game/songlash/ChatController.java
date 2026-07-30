@@ -16,7 +16,6 @@ import java.util.Optional;
 @Slf4j
 
 public class ChatController {
-
     private final SimpMessagingTemplate messagingTemplate;
     private final PlayerRegistry playerRegistry;
     private final RoomManager roomManager;
@@ -34,103 +33,33 @@ public class ChatController {
         messagingTemplate.convertAndSendToUser(sessionId, "/queue/errors", error, accessor.getMessageHeaders());
     }
 
-    @MessageMapping("/chat.addUser")
-    public void addUser(@Payload ChatMessage in, SimpMessageHeaderAccessor headerAccessor){
-        String sessionId = headerAccessor.getSessionId();
-
-        String requested = in.getSender() == null ? "" : in.getSender().trim();
-
-        boolean valid = (!requested.isEmpty() && requested.length()<=10);
-        if (!valid) {
-            sendError(sessionId, "invalid player name");
-            return;
-        }
-
-        if(playerRegistry.find(sessionId).isPresent()){
-            sendError(sessionId, "you already joined");
-            return;
-        }
-
-        Optional<Player> maybePlayer = playerRegistry.add(sessionId, requested, Optional.empty());
-        if (maybePlayer.isEmpty()){
-            sendError(sessionId, "name is taken already");
-            return;
-        }
-        Player player = maybePlayer.get();
-
-        messagingTemplate.convertAndSend("/topic/public", ChatMessage.builder()
-                .type(MessageType.JOIN)
-                .sender(player.name())
-                .players(playerRegistry.names())
-                .build());
-    }
-
-    @MessageMapping("/chat.sendMessage")
-    public void sendMessage(@Payload ChatMessage in, SimpMessageHeaderAccessor accessor){
-        String sessionId = accessor.getSessionId();
-
-        Optional<Player> maybePlayer = playerRegistry.find(sessionId);
-        if(maybePlayer.isEmpty()){
-            sendError(sessionId, "join before sending a message");
-            return;
-        }
-        Player player = maybePlayer.get();
-
-        String content = in.getContent() == null ? "" : in.getContent().trim();
-        if(content.isEmpty() || content.length() > 200) return;
-
-        messagingTemplate.convertAndSend("/topic/public", ChatMessage.builder()
-                .type(MessageType.CHAT)
-                .sender(player.name())
-                .content(content)
-                .build());
-    }
-
     @MessageMapping("/chat.createRoom")
     public void createRoom(SimpMessageHeaderAccessor headerAccessor){
         String sessionId = headerAccessor.getSessionId();
 
-        Optional<Player> maybePlayer = playerRegistry.find(sessionId);
-        if(maybePlayer.isEmpty()){
-            sendError(sessionId, "join before sending a message");
-            return;
-        }
-        Player hostPlayer = maybePlayer.get();
+        Room room = roomManager.createRoom();
+        playerRegistry.ensureSession(sessionId);
+        playerRegistry.setPlayerRoom(sessionId, room.getCode());
+        room.getSessionIds().add(sessionId);
 
-        Room newRoom = roomManager.createRoom();
-        playerRegistry.setPlayerRoom(sessionId, newRoom.getCode());
-        Player updatedHost = playerRegistry.find(sessionId).orElse(hostPlayer);
-        newRoom.getPlayers().add(updatedHost);
-
-        ChatMessage roomCreatedMessage = ChatMessage.builder()
+        ChatMessage messageCreated = ChatMessage.builder()
                 .type(MessageType.ROOM_CREATED)
                 .sender("system")
-                .content("room created with code " + newRoom.getCode())
+                .content("room created with code " + room.getCode())
+                .players(playerRegistry.namesInRoom(room.getCode()))
                 .build();
 
         SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
         accessor.setSessionId(sessionId);
         accessor.setLeaveMutable(true);
 
-        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", roomCreatedMessage, accessor.getMessageHeaders());
+        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", messageCreated, accessor.getMessageHeaders());
     }
 
     @MessageMapping("/chat.joinRoom")
     public void joinRoom(@Payload ChatMessage in, SimpMessageHeaderAccessor headerAccessor){
         String sessionId = headerAccessor.getSessionId();
         String code = in.getContent() == null ? "" : in.getContent().trim().toUpperCase();
-
-        Optional<Player> maybePlayer = playerRegistry.find(sessionId);
-        if(maybePlayer.isEmpty()){
-            sendError(sessionId, "join before sending a message");
-            return;
-        }
-        Player player = maybePlayer.get();
-
-        if(player.roomId().isPresent()){
-            sendError(sessionId, "you're already in a room");
-            return;
-        }
 
         Room room = roomManager.getRoom(code);
         if(room == null){
@@ -142,29 +71,47 @@ public class ChatController {
             sendError(sessionId, "room is full");
             return;
         }
+
+        playerRegistry.ensureSession(sessionId);
         playerRegistry.setPlayerRoom(sessionId, code);
-        Player updatedPlayer = playerRegistry.find(sessionId).orElse(player);
-        room.getPlayers().add(updatedPlayer);
+        room.getSessionIds().add(sessionId);
 
-        ChatMessage playerJoinedMessage = ChatMessage.builder()
-                .type(MessageType.JOIN)
-                .sender(updatedPlayer.name())
-                .content(updatedPlayer.name() + " joined the room")
+        ChatMessage message = ChatMessage.builder()
+                .type(MessageType.ROOM_JOINED)
+                .sender("system")
+                .content("joined room with code " + code)
+                .players(playerRegistry.namesInRoom(code))
                 .build();
-
-        messagingTemplate.convertAndSend("/topic/room." + code, playerJoinedMessage);
 
         SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
         accessor.setSessionId(sessionId);
         accessor.setLeaveMutable(true);
 
-        ChatMessage roomJoinedMessage = ChatMessage.builder()
-                .type(MessageType.ROOM_JOINED)
-                .sender("system")
-                .content("joined room with code " + code)
-                .build();
+        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", message, accessor.getMessageHeaders());
+    }
 
-        messagingTemplate.convertAndSendToUser(sessionId, "/queue/room", roomJoinedMessage, accessor.getMessageHeaders());
+    @MessageMapping("/chat.setName")
+    public void setName(@Payload ChatMessage in, SimpMessageHeaderAccessor headerAccessor){
+        String sessionId = headerAccessor.getSessionId();
+        String requested = in.getSender() == null ? "" : in.getSender().trim();
+        //TODO: name restrictions
+
+        Optional<Player> maybePlayer = playerRegistry.find(sessionId);
+        String roomCode = maybePlayer.get().roomId().get();
+
+        if (playerRegistry.isNameTaken(roomCode, requested)) {
+            sendError(sessionId, "name is taken in this room");
+            return;
+        }
+
+        playerRegistry.setPlayerName(sessionId, requested);
+
+        messagingTemplate.convertAndSend("/topic/room." + roomCode, ChatMessage.builder()
+                .type(MessageType.JOIN)
+                .sender(requested)
+                .content(requested + " joined the room")
+                .players(playerRegistry.namesInRoom(roomCode))
+                .build());
     }
 
     @MessageMapping("/chat.roomMessage")
@@ -172,15 +119,14 @@ public class ChatController {
         String sessionId = accessor.getSessionId();
 
         Optional<Player> maybePlayer = playerRegistry.find(sessionId);
-        if(maybePlayer.isEmpty()){
-            sendError(sessionId, "join before sending a room message");
+        if (maybePlayer.isEmpty() || maybePlayer.get().roomId().isEmpty()) {
+            sendError(sessionId, "join a room first");
             return;
         }
 
         Player player = maybePlayer.get();
-        String roomCode = player.roomId().orElse("");
-        if(roomCode.isBlank()){
-            sendError(sessionId, "join a room first");
+        if (player.name().isEmpty()) {
+            sendError(sessionId, "set your name first");
             return;
         }
 
@@ -189,9 +135,9 @@ public class ChatController {
             return;
         }
 
-        messagingTemplate.convertAndSend("/topic/room." + roomCode, ChatMessage.builder()
+        messagingTemplate.convertAndSend("/topic/room." + player.roomId().get(), ChatMessage.builder()
                 .type(MessageType.CHAT)
-                .sender(player.name())
+                .sender(player.name().get())
                 .content(content)
                 .build());
     }

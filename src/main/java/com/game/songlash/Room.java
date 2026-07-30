@@ -5,7 +5,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 public class Room {
     private final String code;
-    private final List<Player> players = new CopyOnWriteArrayList<>();
+    private final List<String> sessionIds = new CopyOnWriteArrayList<>();
     //copyonwritearraylist = multiple players will be added/removed from threads at the same time, safer than ArrayList
 
     //constructors
@@ -15,7 +15,7 @@ public class Room {
 
     //getters
     public String getCode() {return code;}
-    public List<Player> getPlayers() {return players;}
+    public List<String> getSessionIds() {return sessionIds;}
 
     //setters
     //no
