@@ -33,7 +33,7 @@ public class WebSocketEventListener {
                     room.getSessionIds().remove(sessionId);
 
                     player.name().ifPresent(name ->
-                            messageTemplate.convertAndSend("/topic/room." + code, ChatMessage.builder()
+                            messageTemplate.convertAndSend("/topic/room." + code, GameMessage.builder()
                                     .type(MessageType.LEAVE)
                                     .sender(name)
                                     .content(name + " left the room")

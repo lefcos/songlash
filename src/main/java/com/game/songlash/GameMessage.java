@@ -2,7 +2,7 @@ package com.game.songlash;
 
 import java.util.List;
 
-public class ChatMessage {
+public class GameMessage {
     private String content;
     private String sender;
     private MessageType type;
@@ -11,9 +11,9 @@ public class ChatMessage {
     private String hostName; // Added field
 
     //constructors
-    public ChatMessage(){}
+    public GameMessage(){}
 
-    public ChatMessage(String content, String sender, MessageType type, List<String> players, Boolean host, String hostName) { // Modified constructor
+    public GameMessage(String content, String sender, MessageType type, List<String> players, Boolean host, String hostName) { // Modified constructor
         this.content = content;
         this.sender = sender;
         this.type = type;
@@ -67,8 +67,8 @@ public class ChatMessage {
             return this;
         }
 
-        public ChatMessage build(){
-            return new ChatMessage(content, sender, type, players, host, hostName);
+        public GameMessage build(){
+            return new GameMessage(content, sender, type, players, host, hostName);
         }
     }
 
@@ -98,6 +98,7 @@ public class ChatMessage {
     }
 
     //setters
+    //keep these IDK WHY
     public void setContent(String content){
         this.content = content;
     }

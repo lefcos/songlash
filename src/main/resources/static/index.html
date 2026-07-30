@@ -184,7 +184,7 @@
     $('createRoomBtn').onclick = () => {
         connect(() => {
             client.publish({
-                destination: '/app/chat.createRoom',
+                destination: '/app/game.createRoom',
                 body: JSON.stringify({})
             });
         });
@@ -198,7 +198,7 @@
                 return;
             }
             client.publish({
-                destination: '/app/chat.joinRoom',
+                destination: '/app/game.joinRoom',
                 body: JSON.stringify({ content: code })
             });
         });
@@ -210,7 +210,7 @@
         if (!username) return;
 
         client.publish({
-            destination: '/app/chat.setName',
+            destination: '/app/game.setName',
             body: JSON.stringify({ sender: username })
         });
     };
@@ -222,7 +222,7 @@
         if (!content) return;
 
         client.publish({
-            destination: '/app/chat.roomMessage',
+            destination: '/app/game.roomMessage',
             body: JSON.stringify({ content: content, type: 'CHAT' })
         });
         input.value = '';
@@ -231,7 +231,7 @@
     $('startGameBtn').onclick = () => {
         if (!client || !roomCode || !isHost) return;
         client.publish({
-            destination: '/app/chat.startGame',
+            destination: '/app/game.startGame',
             body: JSON.stringify({})
         });
     };

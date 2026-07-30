@@ -14,13 +14,13 @@ import java.util.Optional;
 @RequiredArgsConstructor
 @Slf4j
 
-public class ChatController {
+public class GameController {
     private final SimpMessagingTemplate messagingTemplate;
     private final PlayerRegistry playerRegistry;
     private final RoomManager roomManager;
     private record PlayerInRoom(Player player, Room room) {}
 
-    @MessageMapping("/chat.createRoom")
+    @MessageMapping("/game.createRoom")
     public void createRoom(SimpMessageHeaderAccessor headerAccessor){
         String sessionId = headerAccessor.getSessionId();
 
@@ -33,7 +33,7 @@ public class ChatController {
                 .flatMap(Player::name)
                 .orElse("Host");
 
-        ChatMessage messageCreated = ChatMessage.builder()
+        GameMessage messageCreated = GameMessage.builder()
                 .type(MessageType.ROOM_CREATED)
                 .sender("system")
                 .content("room created with code " + room.getCode())
@@ -44,8 +44,8 @@ public class ChatController {
         sendToUser(sessionId, "/queue/room", messageCreated);
     }
 
-    @MessageMapping("/chat.joinRoom")
-    public void joinRoom(@Payload ChatMessage in, SimpMessageHeaderAccessor headerAccessor){
+    @MessageMapping("/game.joinRoom")
+    public void joinRoom(@Payload GameMessage in, SimpMessageHeaderAccessor headerAccessor){
         String sessionId = headerAccessor.getSessionId();
         String code = in.getContent() == null ? "" : in.getContent().trim().toUpperCase();
 
@@ -69,7 +69,7 @@ public class ChatController {
                 .flatMap(Player::name)
                 .orElse("Host");
 
-        ChatMessage message = ChatMessage.builder()
+        GameMessage message = GameMessage.builder()
                 .type(MessageType.ROOM_JOINED)
                 .sender("system")
                 .content("joined room with code " + code)
@@ -80,8 +80,8 @@ public class ChatController {
         sendToUser(sessionId, "/queue/room", message);
     }
 
-    @MessageMapping("/chat.setName")
-    public void setName(@Payload ChatMessage in, SimpMessageHeaderAccessor headerAccessor){
+    @MessageMapping("/game.setName")
+    public void setName(@Payload GameMessage in, SimpMessageHeaderAccessor headerAccessor){
         String sessionId = headerAccessor.getSessionId();
         String requested = in.getSender() == null ? "" : in.getSender().trim();
 
@@ -104,7 +104,7 @@ public class ChatController {
                 .flatMap(Player::name)
                 .orElse("Host");
 
-        sendToRoom(context.get().room().getCode(), ChatMessage.builder()
+        sendToRoom(context.get().room().getCode(), GameMessage.builder()
                 .type(MessageType.JOIN)
                 .sender(requested)
                 .content(requested + " joined the room")
@@ -113,7 +113,7 @@ public class ChatController {
                 .build());
     }
 
-    @MessageMapping("/chat.startGame")
+    @MessageMapping("/game.startGame")
     public void startGame(SimpMessageHeaderAccessor headerAccessor){
         String sessionId = headerAccessor.getSessionId();
 
@@ -126,15 +126,15 @@ public class ChatController {
         }
 
         // TODO: game state logic
-        sendToRoom(context.get().room().getCode(), ChatMessage.builder()
+        sendToRoom(context.get().room().getCode(), GameMessage.builder()
                 .type(MessageType.START_GAME)
                 .sender("system")
                 .content("game started")
                 .build());
     }
 
-    @MessageMapping("/chat.roomMessage")
-    public void roomMessage(@Payload ChatMessage in, SimpMessageHeaderAccessor accessor){
+    @MessageMapping("/game.roomMessage")
+    public void roomMessage(@Payload GameMessage in, SimpMessageHeaderAccessor accessor){
         String sessionId = accessor.getSessionId();
 
         Optional<PlayerInRoom> context = getPlayerAndRoom(sessionId);
@@ -150,7 +150,7 @@ public class ChatController {
             return;
         }
 
-        sendToRoom(context.get().room().getCode(), ChatMessage.builder()
+        sendToRoom(context.get().room().getCode(), GameMessage.builder()
                 .type(MessageType.CHAT)
                 .sender(context.get().player().name().get())
                 .content(content)
@@ -159,7 +159,7 @@ public class ChatController {
 
     //helper funcs
     private void sendError(String sessionId, String text){
-        var error = ChatMessage.builder()
+        var error = GameMessage.builder()
                 .type(MessageType.ERROR)
                 .content(text)
                 .build();
