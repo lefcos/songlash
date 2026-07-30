@@ -29,9 +29,11 @@
 <div id="roomArea" style="display:none;">
     <div id="roomTitle"></div>
     <div id="roomPlayers"></div>
+    <div id="gameStatus"></div> <!-- Added for game status -->
     <div id="roomLog"></div>
     <input id="roomMessage" placeholder="message" autocomplete="off" disabled>
     <button id="sendRoomBtn" disabled>Send</button>
+    <button id="startGameBtn" style="display:none;">start game</button> <!-- Added start game button -->
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
@@ -43,15 +45,34 @@
     let roomCode = '';
     let roomSubscription = null;
     let nameSet = false;
+    let isHost = false;
+    let hostName = '';
     let pendingAction = null;
 
     const setStatus = text => {
         $('roomStatus').textContent = text || '';
     };
 
-    const renderPlayers = players => {
+    const setGameStatus = text => {
+        $('gameStatus').textContent = text || '';
+    };
+
+    const updateRoomControls = () => {
+        $('startGameBtn').style.display = (isHost && nameSet) ? 'inline-block' : 'none';
+        if (!isHost && nameSet && hostName) {
+            setGameStatus(`Waiting for ${hostName} to start the game...`);
+        } else if (isHost && nameSet) {
+            setGameStatus('You are the host.');
+        } else {
+            setGameStatus('');
+        }
+    };
+
+    const renderPlayers = (players, currentHostName) => { // Modified to accept hostName
         const list = Array.isArray(players) ? players.filter(Boolean) : [];
-        $('roomPlayers').textContent = list.length ? 'Players: ' + list.join(', ') : 'Players:';
+        $('roomPlayers').textContent = list.length
+            ? 'Players: ' + list.map(name => name === currentHostName ? `${name} (host)` : name).join(', ')
+            : 'Players:';
     };
 
     const codeFromText = text => {
@@ -67,8 +88,12 @@
         $('roomPlayers').textContent = '';
         $('roomMessage').disabled = true;
         $('sendRoomBtn').disabled = true;
+        $('startGameBtn').style.display = 'none';
+        setGameStatus('');
         roomCode = '';
         nameSet = false;
+        isHost = false;
+        hostName = '';
     };
 
     const showNamePrompt = () => {
@@ -77,6 +102,7 @@
         $('roomArea').style.display = 'block';
         $('roomMessage').disabled = true;
         $('sendRoomBtn').disabled = true;
+        updateRoomControls();
     };
 
     const connect = onReady => {
@@ -101,7 +127,9 @@
 
                     if ((msg.type === 'ROOM_CREATED' || msg.type === 'ROOM_JOINED') && code) {
                         setStatus(msg.content || '');
-                        renderPlayers(msg.players);
+                        isHost = msg.host === true;
+                        hostName = msg.hostName || '';
+                        renderPlayers(msg.players, hostName);
                         showRoom(code);
                         showNamePrompt();
                     } else {
@@ -125,6 +153,7 @@
         $('roomTitle').textContent = 'Room ' + code;
         $('roomArea').style.display = 'block';
         $('roomLog').innerHTML = '';
+        updateRoomControls();
 
         if (roomSubscription) roomSubscription.unsubscribe();
         roomSubscription = client.subscribe('/topic/room.' + code, frame => {
@@ -133,13 +162,21 @@
             const sender = msg.sender ? msg.sender + ': ' : '';
             line.textContent = sender + (msg.content || msg.type);
             $('roomLog').append(line);
-            if (msg.players) renderPlayers(msg.players);
+            if (msg.players) renderPlayers(msg.players, msg.hostName || hostName);
+            if (msg.hostName) hostName = msg.hostName;
+            updateRoomControls();
 
             if (msg.type === 'JOIN' && msg.sender === username && !nameSet) {
                 nameSet = true;
                 $('nameArea').style.display = 'none';
                 $('roomMessage').disabled = false;
                 $('sendRoomBtn').disabled = false;
+                updateRoomControls();
+            }
+
+            if (msg.type === 'START_GAME') {
+                setGameStatus('Game started!');
+                $('startGameBtn').style.display = 'none';
             }
         });
     };
@@ -189,6 +226,14 @@
             body: JSON.stringify({ content: content, type: 'CHAT' })
         });
         input.value = '';
+    };
+
+    $('startGameBtn').onclick = () => {
+        if (!client || !roomCode || !isHost) return;
+        client.publish({
+            destination: '/app/chat.startGame',
+            body: JSON.stringify({})
+        });
     };
 
     $('roomCode').addEventListener('keydown', e => {

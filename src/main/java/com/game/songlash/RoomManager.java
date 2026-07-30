@@ -27,9 +27,9 @@ public class RoomManager {
         return code;
     }
 
-    public Room createRoom(){
+    public Room createRoom(String hostSessionId){
         String code = generateUniqueRoomCode();
-        Room newRoom = new Room(code);
+        Room newRoom = new Room(code, hostSessionId);
         activeRooms.put(code, newRoom);
         System.out.println("new room made with code " + code);
         return newRoom;

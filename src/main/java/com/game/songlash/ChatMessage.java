@@ -7,15 +7,19 @@ public class ChatMessage {
     private String sender;
     private MessageType type;
     private List<String> players;
+    private Boolean host; // Added field
+    private String hostName; // Added field
 
     //constructors
     public ChatMessage(){}
 
-    public ChatMessage(String content, String sender, MessageType type, List<String> players) {
+    public ChatMessage(String content, String sender, MessageType type, List<String> players, Boolean host, String hostName) { // Modified constructor
         this.content = content;
         this.sender = sender;
         this.type = type;
         this.players = players;
+        this.host = host;
+        this.hostName = hostName;
     }
 
     //builders
@@ -28,6 +32,8 @@ public class ChatMessage {
         private String sender;
         private MessageType type;
         private List<String> players;
+        private Boolean host;
+        private String hostName;
 
         private ChatMessageBuilder(){};
 
@@ -51,8 +57,18 @@ public class ChatMessage {
             return this;
         }
 
+        public ChatMessageBuilder host(Boolean host){
+            this.host = host;
+            return this;
+        }
+
+        public ChatMessageBuilder hostName(String hostName){
+            this.hostName = hostName;
+            return this;
+        }
+
         public ChatMessage build(){
-            return new ChatMessage(content, sender, type, players);
+            return new ChatMessage(content, sender, type, players, host, hostName);
         }
     }
 
@@ -73,6 +89,14 @@ public class ChatMessage {
         return players;
     }
 
+    public Boolean getHost() { // Added getter
+        return host;
+    }
+
+    public String getHostName() { // Added getter
+        return hostName;
+    }
+
     //setters
     public void setContent(String content){
         this.content = content;
@@ -88,5 +112,13 @@ public class ChatMessage {
 
     public void setPlayers(List<String> players){
         this.players = players;
+    }
+
+    public void setHost(Boolean host) { // Added setter
+        this.host = host;
+    }
+
+    public void setHostName(String hostName) { // Added setter
+        this.hostName = hostName;
     }
 }
