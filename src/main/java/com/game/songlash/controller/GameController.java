@@ -1,5 +1,11 @@
-package com.game.songlash;
+package com.game.songlash.controller;
 
+import com.game.songlash.model.GameMessage;
+import com.game.songlash.model.MessageType;
+import com.game.songlash.model.Player;
+import com.game.songlash.model.Room;
+import com.game.songlash.repository.PlayerRegistry;
+import com.game.songlash.repository.RoomManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.MessageMapping;

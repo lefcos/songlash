@@ -1,4 +1,4 @@
-package com.game.songlash;
+package com.game.songlash.model;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;

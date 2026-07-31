@@ -1,4 +1,6 @@
-package com.game.songlash;
+package com.game.songlash.repository;
+
+import com.game.songlash.model.Room;
 
 import org.springframework.stereotype.Component;
 import java.security.SecureRandom;

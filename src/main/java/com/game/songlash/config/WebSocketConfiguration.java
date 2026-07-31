@@ -1,4 +1,4 @@
-package com.game.songlash;
+package com.game.songlash.config;
 
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;

@@ -1,4 +1,4 @@
-package com.game.songlash;
+package com.game.songlash.model;
 
 public enum MessageType {
     CHAT,

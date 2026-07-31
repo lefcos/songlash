@@ -1,4 +1,6 @@
-package com.game.songlash;
+package com.game.songlash.repository;
+
+import com.game.songlash.model.Player;
 
 import org.springframework.stereotype.Service;
 import java.util.List;
