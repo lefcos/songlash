@@ -36,7 +36,7 @@ public class WebSocketEventListener {
             player.roomId().ifPresent(code -> {
                 Room room = roomManager.getRoom(code);
                 if (room != null) {
-                    room.getSessionIds().remove(sessionId);
+                    room.removeSession(sessionId);
 
                     player.name().ifPresent(name ->
                             messageTemplate.convertAndSend("/topic/room." + code, GameMessage.builder()
@@ -46,7 +46,7 @@ public class WebSocketEventListener {
                                     .build())
                     );
 
-                    if (room.getSessionIds().isEmpty()) {
+                    if (room.isEmpty()) {
                         roomManager.removeRoom(code);
                     }
                 }

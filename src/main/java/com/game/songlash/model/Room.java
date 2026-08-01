@@ -6,6 +6,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class Room {
     public enum State { LOBBY, ONGOING, DONE }
 
+    public static final int MAX_PLAYERS = 7;
+
     private final String code;
     private final List<String> sessionIds = new CopyOnWriteArrayList<>();
     private final String hostSessionId; // Added field
@@ -22,14 +24,28 @@ public class Room {
 
     //getters
     public String getCode() {return code;}
-    public List<String> getSessionIds() {return sessionIds;}
+    public List<String> getSessionIds() {return List.copyOf(sessionIds);}
     public String getHostSessionId() {return hostSessionId;}
     public State getCurrentState() { return currentState; }
     public GameSession getGameSession() { return gameSession; }
 
+    public int playerCount() { return sessionIds.size(); }
+    public boolean isEmpty() { return sessionIds.isEmpty(); }
+
     //check if session is the host
     public boolean isHostSession(String sessionId) {
         return hostSessionId != null && hostSessionId.equals(sessionId);
+    }
+
+    public synchronized boolean tryAddSession(String sessionId) {
+        if (sessionIds.contains(sessionId)) return true;
+        if (sessionIds.size() >= MAX_PLAYERS) return false;
+        sessionIds.add(sessionId);
+        return true;
+    }
+
+    public synchronized void removeSession(String sessionId) {
+        sessionIds.remove(sessionId);
     }
 
     //setters

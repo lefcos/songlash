@@ -1,20 +1,22 @@
 package com.game.songlash.controller;
 
+import com.game.songlash.exception.GameException;
 import com.game.songlash.model.GameMessage;
 import com.game.songlash.model.MessageType;
 import com.game.songlash.model.Player;
 import com.game.songlash.model.Room;
 import com.game.songlash.repository.PlayerRegistry;
 import com.game.songlash.repository.RoomManager;
+import com.game.songlash.service.GameService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
-import java.util.Optional;
 
 @Controller
 @RequiredArgsConstructor
@@ -24,20 +26,15 @@ public class GameController {
     private final SimpMessagingTemplate messagingTemplate;
     private final PlayerRegistry playerRegistry;
     private final RoomManager roomManager;
+    private final GameService gameService;
+
     private record PlayerInRoom(Player player, Room room) {}
 
     @MessageMapping("/game.createRoom")
     public void createRoom(SimpMessageHeaderAccessor headerAccessor){
         String sessionId = headerAccessor.getSessionId();
 
-        Room room = roomManager.createRoom(sessionId);
-        playerRegistry.ensureSession(sessionId);
-        playerRegistry.setPlayerRoom(sessionId, room.getCode());
-        room.getSessionIds().add(sessionId);
-
-        String hostName = playerRegistry.find(sessionId)
-                .flatMap(Player::name)
-                .orElse("Host");
+        Room room = gameService.createRoom(sessionId);
 
         GameMessage messageCreated = GameMessage.builder()
                 .type(MessageType.ROOM_CREATED)
@@ -45,7 +42,7 @@ public class GameController {
                 .content("room created with code " + room.getCode())
                 .players(playerRegistry.namesInRoom(room.getCode()))
                 .host(true)
-                .hostName(hostName)
+                .hostName(hostNameOf(room))
                 .build();
         sendToUser(sessionId, "/queue/room", messageCreated);
     }
@@ -53,35 +50,16 @@ public class GameController {
     @MessageMapping("/game.joinRoom")
     public void joinRoom(@Payload GameMessage in, SimpMessageHeaderAccessor headerAccessor){
         String sessionId = headerAccessor.getSessionId();
-        String code = in.getContent() == null ? "" : in.getContent().trim().toUpperCase();
 
-        Room room = roomManager.getRoom(code);
-        if(room == null){
-            sendError(sessionId, "room doesn't exist");
-            return;
-        }
-
-        if(roomManager.isFull(room)){
-            sendError(sessionId, "room is full");
-            return;
-        }
-
-        playerRegistry.ensureSession(sessionId);
-        playerRegistry.setPlayerRoom(sessionId, code);
-        room.getSessionIds().add(sessionId);
-
-        boolean isHost = room.isHostSession(sessionId);
-        String hostName = playerRegistry.find(room.getHostSessionId())
-                .flatMap(Player::name)
-                .orElse("Host");
+        Room room = gameService.joinRoom(sessionId, in.getContent());
 
         GameMessage message = GameMessage.builder()
                 .type(MessageType.ROOM_JOINED)
                 .sender("system")
-                .content("joined room with code " + code)
-                .players(playerRegistry.namesInRoom(code))
-                .host(isHost)
-                .hostName(hostName)
+                .content("joined room with code " + room.getCode())
+                .players(playerRegistry.namesInRoom(room.getCode()))
+                .host(room.isHostSession(sessionId))
+                .hostName(hostNameOf(room))
                 .build();
         sendToUser(sessionId, "/queue/room", message);
     }
@@ -92,30 +70,23 @@ public class GameController {
         String requested = in.getSender() == null ? "" : in.getSender().trim();
 
         if(requested.length() >= 12 || requested.length() < 2){
-            sendError(sessionId, "name must be between 2 and 12 characters");
-            return;
+            throw new GameException("name must be between 2 and 12 characters");
         }
 
-        Optional<PlayerInRoom> context = getPlayerAndRoom(sessionId);
-        if (context.isEmpty()) return;
+        Room room = requirePlayerInRoom(sessionId).room();
 
-        if (playerRegistry.isNameTaken(context.get().room().getCode(), requested)) {
-            sendError(sessionId, "name is taken in this room");
-            return;
+        if (playerRegistry.isNameTaken(room.getCode(), requested)) {
+            throw new GameException("name is taken in this room");
         }
 
         playerRegistry.setPlayerName(sessionId, requested);
 
-        String hostName = playerRegistry.find(context.get().room().getHostSessionId())
-                .flatMap(Player::name)
-                .orElse("Host");
-
-        sendToRoom(context.get().room().getCode(), GameMessage.builder()
+        sendToRoom(room.getCode(), GameMessage.builder()
                 .type(MessageType.JOIN)
                 .sender(requested)
                 .content(requested + " joined the room")
-                .players(playerRegistry.namesInRoom(context.get().room().getCode()))
-                .hostName(hostName)
+                .players(playerRegistry.namesInRoom(room.getCode()))
+                .hostName(hostNameOf(room))
                 .build());
     }
 
@@ -123,16 +94,14 @@ public class GameController {
     public void startGame(SimpMessageHeaderAccessor headerAccessor){
         String sessionId = headerAccessor.getSessionId();
 
-        Optional<PlayerInRoom> context = getPlayerAndRoom(sessionId);
-        if (context.isEmpty()) return;
+        Room room = requirePlayerInRoom(sessionId).room();
 
-        if (!context.get().room().isHostSession(sessionId)) {
-            sendError(sessionId, "only the host can start the game");
-            return;
+        if (!room.isHostSession(sessionId)) {
+            throw new GameException("only the host can start the game");
         }
 
         // TODO: game state logic
-        sendToRoom(context.get().room().getCode(), GameMessage.builder()
+        sendToRoom(room.getCode(), GameMessage.builder()
                 .type(MessageType.START_GAME)
                 .sender("system")
                 .content("game started")
@@ -143,34 +112,35 @@ public class GameController {
     public void roomMessage(@Payload GameMessage in, SimpMessageHeaderAccessor accessor){
         String sessionId = accessor.getSessionId();
 
-        Optional<PlayerInRoom> context = getPlayerAndRoom(sessionId);
-        if (context.isEmpty()) return;
+        PlayerInRoom context = requirePlayerInRoom(sessionId);
 
-        if (context.get().player().name().isEmpty()) {
-            sendError(sessionId, "set your name first");
-            return;
+        if (context.player().name().isEmpty()) {
+            throw new GameException("set your name first");
         }
 
         String content = in.getContent() == null ? "" : in.getContent().trim();
         if(content.isEmpty() || content.length() > 200){
-            return;
+            return; //ignore silently, not worth an error
         }
 
-        sendToRoom(context.get().room().getCode(), GameMessage.builder()
+        sendToRoom(context.room().getCode(), GameMessage.builder()
                 .type(MessageType.CHAT)
-                .sender(context.get().player().name().get())
+                .sender(context.player().name().get())
                 .content(content)
                 .build());
     }
 
-    //helper funcs
-    private void sendError(String sessionId, String text){
-        var error = GameMessage.builder()
+    @MessageExceptionHandler(GameException.class)
+    public void handleGameException(GameException ex, SimpMessageHeaderAccessor headerAccessor){
+        String sessionId = headerAccessor.getSessionId();
+        log.debug("rejected request from {}: {}", sessionId, ex.getMessage());
+        sendToUser(sessionId, "/queue/errors", GameMessage.builder()
                 .type(MessageType.ERROR)
-                .content(text)
-                .build();
-        sendToUser(sessionId, "/queue/errors", error);
+                .content(ex.getMessage())
+                .build());
     }
+
+    //helper funcs
     private void sendToUser(String sessionId, String destination, Object payload) {
         SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
         accessor.setSessionId(sessionId);
@@ -180,19 +150,20 @@ public class GameController {
     private void sendToRoom(String roomCode, Object payload) {
         messagingTemplate.convertAndSend("/topic/room." + roomCode, payload);
     }
-    private Optional<PlayerInRoom> getPlayerAndRoom(String sessionId) {
-        Optional<Player> maybePlayer = playerRegistry.find(sessionId);
-        if (maybePlayer.isEmpty() || maybePlayer.get().roomId().isEmpty()) {
-            sendError(sessionId, "join a room first");
-            return Optional.empty();
-        }
+    private String hostNameOf(Room room) {
+        return playerRegistry.find(room.getHostSessionId())
+                .flatMap(Player::name)
+                .orElse("Host");
+    }
+    private PlayerInRoom requirePlayerInRoom(String sessionId) {
+        Player player = playerRegistry.find(sessionId)
+                .filter(p -> p.roomId().isPresent())
+                .orElseThrow(() -> new GameException("join a room first"));
 
-        Player player = maybePlayer.get();
         Room room = roomManager.getRoom(player.roomId().get());
         if (room == null) {
-            sendError(sessionId, "room does not exist");
-            return Optional.empty();
+            throw new GameException("room does not exist");
         }
-        return Optional.of(new PlayerInRoom(player, room));
+        return new PlayerInRoom(player, room);
     }
 }

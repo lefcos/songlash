@@ -44,8 +44,4 @@ public class RoomManager {
     public void removeRoom(String code){
         activeRooms.remove(code);
     }
-
-    public boolean isFull(Room room){
-        return room.getSessionIds().size() >= 7;
-    }
 }
